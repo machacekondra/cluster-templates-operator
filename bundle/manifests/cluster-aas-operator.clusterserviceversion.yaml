@@ -32,9 +32,9 @@ metadata:
     categories: Integration & Delivery,OpenShift Optional
     certified: "false"
     containerImage: quay.io/stolostron/cluster-templates-operator:2.7.0-8a5d0ce2db589cdbee3c4b0fa86051b3daa2ee74
-    createdAt: "2022-11-25T12:00:00+00:00"
+    createdAt: "2023-07-11T12:12:36Z"
     description: Easily install fully configured clusters with guard-rails.
-    operators.operatorframework.io/builder: operator-sdk-v1.23.0
+    operators.operatorframework.io/builder: operator-sdk-v1.29.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/stolostron/cluster-templates-operator
   name: cluster-aas-operator.v0.0.3
@@ -222,6 +222,17 @@ spec:
           - get
           - list
           - patch
+          - update
+          - watch
+        - apiGroups:
+          - argoproj.io
+          resources:
+          - appprojects
+          verbs:
+          - create
+          - delete
+          - get
+          - list
           - update
           - watch
         - apiGroups:
@@ -463,7 +474,7 @@ spec:
                 - --tls-private-key-file=/etc/certs/tls/tls.key
                 command:
                 - /manager
-                image: quay.io/stolostron/cluster-templates-operator:latest
+                image: quay.io/machacekondra/cluster-templates-operator:latest
                 livenessProbe:
                   httpGet:
                     path: /healthz

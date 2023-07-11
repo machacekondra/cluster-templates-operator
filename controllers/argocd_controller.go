@@ -87,7 +87,16 @@ func (r *ArgoCDReconciler) Reconcile(
 				},
 				ApplicationSet: &argo.ArgoCDApplicationSet{
 					LogLevel: "info",
+					ExtraCommandArgs: []string{
+						"--applicationset-namespaces",
+						"orgx",
+					},
+					Version: "v2.8.0-rc1",
 				},
+				SourceNamespaces: []string{
+					"orgx",
+				},
+				Version: "v2.8.0-rc1",
 			},
 		}, false); err != nil {
 			return reconcile.Result{}, err

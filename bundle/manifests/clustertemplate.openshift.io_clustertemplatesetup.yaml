@@ -43,6 +43,9 @@ spec:
                 items:
                   type: string
                 type: array
+              namespace:
+                description: The namespace of the applicationsets
+                type: string
               skipClusterRegistration:
                 description: Skip the registeration of the cluster to the hub cluster
                 type: boolean

@@ -46,6 +46,7 @@ import (
 	argo "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	hypershiftv1beta1 "github.com/openshift/hypershift/api/v1beta1"
+	"github.com/stolostron/cluster-templates-operator/utils"
 	agent "github.com/stolostron/klusterlet-addon-controller/pkg/apis/agent/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -97,6 +98,7 @@ type ClusterTemplateInstanceReconciler struct {
 // +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=managedclustersets/join,verbs=create
 // +kubebuilder:rbac:groups=register.open-cluster-management.io,resources=managedclusters/accept,verbs=update
 // +kubebuilder:rbac:groups=agent.open-cluster-management.io,resources=klusterletaddonconfigs,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups=argoproj.io,resources=appprojects,verbs=get;list;watch;create;update;delete
 
 func (r *ClusterTemplateInstanceReconciler) Reconcile(
 	ctx context.Context,
@@ -151,7 +153,18 @@ func (r *ClusterTemplateInstanceReconciler) Reconcile(
 		return ctrl.Result{}, err
 	}
 
-	err = r.reconcile(ctx, clusterTemplateInstance, clusterTemplate)
+	// Ensure auto ns management
+	err = r.autoNsManagement(ctx, clusterTemplateInstance, clusterTemplate)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	namespace := ArgoCDNamespace
+	if ns := getNamespace(clusterTemplate); ns != nil {
+		namespace = *ns
+	}
+
+	err = r.reconcile(ctx, clusterTemplateInstance, clusterTemplate, namespace)
 	if updErr := r.Status().Update(ctx, clusterTemplateInstance); updErr != nil {
 		return ctrl.Result{}, fmt.Errorf(
 			"failed to update status of clustertemplateinstance %q: %w",
@@ -168,6 +181,99 @@ func (r *ClusterTemplateInstanceReconciler) Reconcile(
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *ClusterTemplateInstanceReconciler) autoNsManagement(ctx context.Context, cti *v1alpha1.ClusterTemplateInstance, clusterTemplate client.Object) error {
+	config := &v1alpha1.Config{}
+	if err := r.Get(ctx, types.NamespacedName{Name: configName, Namespace: defaultArgoCDNs}, config); err != nil {
+		return err
+	}
+
+	if !config.Spec.AutoNamespaceManagement {
+		return nil
+	}
+
+	ct, ok := clusterTemplate.(*v1alpha1.ClusterTemplate)
+	if !ok {
+		return fmt.Errorf("failed to cast clusterTemplate to ClusterTemplate")
+	}
+	user := cti.Annotations[v1alpha1.CTIRequesterAnnotation]
+
+	// Create userns
+	if err := utils.EnsureResourceExists(ctx, r.Client, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: user,
+		},
+	}, false); err != nil {
+		return err
+	}
+
+	// Create Appproject
+
+	/*
+		Server is available only later when cluster is installed.
+		server, err := clustersetup.GetServer(ctx, r.Client, cti)
+		if err != nil {
+			return err
+		}
+	*/
+	if err := utils.EnsureResourceExists(ctx, r.Client, &argo.AppProject{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      user,
+			Namespace: ArgoCDNamespace,
+		},
+		Spec: argo.AppProjectSpec{
+			Destinations: []argo.ApplicationDestination{
+				{
+					Server:    "https://kubernetes.default.svc",
+					Namespace: user,
+					Name:      "in-cluster",
+				},
+				/*
+					{
+						Namespace: "*",
+						Server:    server,
+					},
+				*/
+			},
+			SourceNamespaces: []string{"*"}, // should be org
+			SourceRepos:      []string{"*"},
+		},
+	}, false); err != nil {
+		return err
+	}
+
+	// create pull secret+ssh secret in that ns
+	if ct.Spec.PullSecret != nil {
+		if err := utils.EnsureResourceExists(ctx, r.Client, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pullsecret-cluster",
+				Namespace: user,
+			},
+			StringData: map[string]string{
+				".dockerconfigjson": *ct.Spec.PullSecret,
+			},
+			Type: corev1.SecretTypeDockerConfigJson,
+		}, false); err != nil {
+			return err
+		}
+	}
+	if ct.Spec.SshKey != nil {
+		if err := utils.EnsureResourceExists(ctx, r.Client, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "sshkey-cluster",
+				Namespace: user,
+			},
+			StringData: map[string]string{
+				"id_rsa.pub": *ct.Spec.SshKey,
+			},
+			Type: corev1.SecretTypeOpaque,
+		}, false); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Return the amount of time the reconcile should re-queued to check the delete time,
@@ -212,6 +318,7 @@ func (r *ClusterTemplateInstanceReconciler) delete(
 	ctx context.Context,
 	clusterTemplateInstance *v1alpha1.ClusterTemplateInstance,
 ) (ctrl.Result, error) {
+	namespace := ArgoCDNamespace
 	if len(clusterTemplateInstance.Finalizers) != 1 || !controllerutil.ContainsFinalizer(
 		clusterTemplateInstance,
 		v1alpha1.CTIFinalizer,
@@ -229,17 +336,20 @@ func (r *ClusterTemplateInstanceReconciler) delete(
 			return ctrl.Result{}, err
 		}
 	} else {
+		if ns := getNamespace(clusterTemplate); ns != nil {
+			namespace = *ns
+		}
 		if ct, ok := clusterTemplate.(*v1alpha1.ClusterTemplate); ok {
-			err := clusterTemplateInstance.DeleteDay1Application(ctx, r.Client, ArgoCDNamespace, ct.Spec.ClusterDefinition)
+			err := clusterTemplateInstance.DeleteDay1Application(ctx, r.Client, namespace, ct.Spec.ClusterDefinition)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-			err = clusterTemplateInstance.DeleteDay2Application(ctx, r.Client, ArgoCDNamespace, ct.Spec.ClusterSetup)
+			err = clusterTemplateInstance.DeleteDay2Application(ctx, r.Client, namespace, ct.Spec.ClusterSetup)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
 		} else {
-			err = clusterTemplateInstance.DeleteDay2Application(ctx, r.Client, ArgoCDNamespace, clusterTemplate.(*v1alpha1.ClusterTemplateSetup).Spec.ClusterSetup)
+			err = clusterTemplateInstance.DeleteDay2Application(ctx, r.Client, namespace, clusterTemplate.(*v1alpha1.ClusterTemplateSetup).Spec.ClusterSetup)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -261,7 +371,7 @@ func (r *ClusterTemplateInstanceReconciler) delete(
 	secrets := &corev1.SecretList{}
 	if err := r.Client.List(ctx, secrets, &client.ListOptions{
 		LabelSelector: selector,
-		Namespace:     ArgoCDNamespace,
+		Namespace:     namespace,
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -314,31 +424,46 @@ func (r *ClusterTemplateInstanceReconciler) delete(
 	return ctrl.Result{}, err
 }
 
-func getClusterProperties(clusterTemplate client.Object) (bool, string, []string) {
+func getNamespace(clusterTemplate client.Object) *string {
+	switch clusterTemplate.(type) {
+	case *v1alpha1.ClusterTemplateSetup:
+		return clusterTemplate.(*v1alpha1.ClusterTemplateSetup).Spec.Namespace
+	case *v1alpha1.ClusterTemplate:
+		return clusterTemplate.(*v1alpha1.ClusterTemplate).Spec.Namespace
+	}
+
+	return nil
+}
+
+func getClusterProperties(clusterTemplate client.Object) (bool, string, []string, *string) {
 	var skipClusterRegistration bool
+	var namespace *string
 	var clusterDefinition string
 	var clusterSetup []string
 	switch clusterTemplate.(type) {
 	case *v1alpha1.ClusterTemplateSetup:
 		skipClusterRegistration = clusterTemplate.(*v1alpha1.ClusterTemplateSetup).Spec.SkipClusterRegistration
 		clusterSetup = clusterTemplate.(*v1alpha1.ClusterTemplateSetup).Spec.ClusterSetup
+		namespace = clusterTemplate.(*v1alpha1.ClusterTemplateSetup).Spec.Namespace
 	case *v1alpha1.ClusterTemplate:
 		skipClusterRegistration = clusterTemplate.(*v1alpha1.ClusterTemplate).Spec.SkipClusterRegistration
 		clusterDefinition = clusterTemplate.(*v1alpha1.ClusterTemplate).Spec.ClusterDefinition
 		clusterSetup = clusterTemplate.(*v1alpha1.ClusterTemplate).Spec.ClusterSetup
+		namespace = clusterTemplate.(*v1alpha1.ClusterTemplate).Spec.Namespace
 	}
 
-	return skipClusterRegistration, clusterDefinition, clusterSetup
+	return skipClusterRegistration, clusterDefinition, clusterSetup, namespace
 }
 
 func (r *ClusterTemplateInstanceReconciler) reconcile(
 	ctx context.Context,
 	clusterTemplateInstance *v1alpha1.ClusterTemplateInstance,
 	clusterTemplate client.Object,
+	namespace string,
 ) error {
-	skipClusterRegistration, clusterDefinition, clusterSetup := getClusterProperties(clusterTemplate)
+	skipClusterRegistration, clusterDefinition, clusterSetup, _ := getClusterProperties(clusterTemplate)
 	if clusterTemplateInstance.Spec.KubeconfigSecretRef == nil {
-		if err := r.reconcileClusterCreate(ctx, clusterTemplateInstance, clusterDefinition); err != nil {
+		if err := r.reconcileClusterCreate(ctx, clusterTemplateInstance, clusterDefinition, namespace); err != nil {
 			clusterTemplateInstance.Status.Phase = v1alpha1.ClusterDefinitionFailedPhase
 			errMsg := fmt.Sprintf("failed to create cluster definition - %q", err)
 			clusterTemplateInstance.Status.Message = errMsg
@@ -347,6 +472,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcile(
 		if err := r.reconcileClusterStatus(
 			ctx,
 			clusterTemplateInstance,
+			namespace,
 		); err != nil {
 			clusterTemplateInstance.Status.Phase = v1alpha1.ClusterInstallFailedPhase
 			errMsg := fmt.Sprintf("failed to reconcile cluster status - %q", err)
@@ -405,21 +531,21 @@ func (r *ClusterTemplateInstanceReconciler) reconcile(
 
 	//
 
-	if err := r.reconcileAddClusterToArgo(ctx, clusterTemplateInstance, skipClusterRegistration); err != nil {
+	if err := r.reconcileAddClusterToArgo(ctx, clusterTemplateInstance, skipClusterRegistration, namespace); err != nil {
 		clusterTemplateInstance.Status.Phase = v1alpha1.ArgoClusterFailedPhase
 		errMsg := fmt.Sprintf("failed to add cluster to argo - %q", err)
 		clusterTemplateInstance.Status.Message = errMsg
 		return fmt.Errorf(errMsg)
 	}
 
-	if err := r.reconcileClusterSetupCreate(ctx, clusterTemplateInstance, clusterSetup); err != nil {
+	if err := r.reconcileClusterSetupCreate(ctx, clusterTemplateInstance, clusterSetup, namespace); err != nil {
 		clusterTemplateInstance.Status.Phase = v1alpha1.ClusterSetupCreateFailedPhase
 		errMsg := fmt.Sprintf("failed to create cluster setup - %q", err)
 		clusterTemplateInstance.Status.Message = errMsg
 		return fmt.Errorf(errMsg)
 	}
 
-	if err := r.reconcileClusterSetup(ctx, clusterTemplateInstance, clusterSetup); err != nil {
+	if err := r.reconcileClusterSetup(ctx, clusterTemplateInstance, clusterSetup, namespace); err != nil {
 		clusterTemplateInstance.Status.Phase = v1alpha1.ClusterSetupFailedPhase
 		errMsg := fmt.Sprintf("failed to reconcile cluster setup - %q", err)
 		clusterTemplateInstance.Status.Message = errMsg
@@ -440,6 +566,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileClusterCreate(
 	ctx context.Context,
 	clusterTemplateInstance *v1alpha1.ClusterTemplateInstance,
 	clusterDefinition string,
+	namespace string,
 ) error {
 	clusterDefinitionCreatedCondition := meta.FindStatusCondition(
 		clusterTemplateInstance.Status.Conditions,
@@ -447,7 +574,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileClusterCreate(
 	)
 
 	if clusterDefinitionCreatedCondition.Status == metav1.ConditionFalse {
-		if err := clusterTemplateInstance.CreateDay1Application(ctx, r.Client, ArgoCDNamespace, ArgoCDNamespace == defaultArgoCDNs, clusterDefinition); err != nil {
+		if err := clusterTemplateInstance.CreateDay1Application(ctx, r.Client, namespace, true, clusterDefinition, clusterTemplateInstance.Annotations[v1alpha1.CTIRequesterAnnotation]); err != nil {
 			clusterTemplateInstance.SetClusterDefinitionCreatedCondition(
 				metav1.ConditionFalse,
 				v1alpha1.ClusterDefinitionFailed,
@@ -467,6 +594,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileClusterCreate(
 func (r *ClusterTemplateInstanceReconciler) reconcileClusterStatus(
 	ctx context.Context,
 	clusterTemplateInstance *v1alpha1.ClusterTemplateInstance,
+	namespace string,
 ) error {
 	CTIlog.Info(
 		"Reconcile instance status",
@@ -486,7 +614,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileClusterStatus(
 		"name",
 		clusterTemplateInstance.Namespace+"/"+clusterTemplateInstance.Name,
 	)
-	application, err := clusterTemplateInstance.GetDay1Application(ctx, r.Client, ArgoCDNamespace)
+	application, err := clusterTemplateInstance.GetDay1Application(ctx, r.Client, namespace)
 
 	if err != nil {
 		failedMsg := fmt.Sprintf("Failed to fetch application - %q", err)
@@ -880,6 +1008,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileAddClusterToArgo(
 	ctx context.Context,
 	clusterTemplateInstance *v1alpha1.ClusterTemplateInstance,
 	skipClusterRegistration bool,
+	namespace string,
 ) error {
 	if !clusterTemplateInstance.PhaseCanExecute(
 		v1alpha1.ManagedClusterImported,
@@ -893,7 +1022,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileAddClusterToArgo(
 		r.Client,
 		clusterTemplateInstance,
 		clustersetup.GetClientForCluster,
-		ArgoCDNamespace,
+		namespace,
 		r.EnableManagedCluster && !skipClusterRegistration,
 	); err != nil {
 		clusterTemplateInstance.SetArgoClusterAddedCondition(
@@ -915,6 +1044,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileClusterSetupCreate(
 	ctx context.Context,
 	clusterTemplateInstance *v1alpha1.ClusterTemplateInstance,
 	clusterSetup []string,
+	namespace string,
 ) error {
 
 	if !clusterTemplateInstance.PhaseCanExecute(
@@ -941,7 +1071,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileClusterSetupCreate(
 	if err := clusterTemplateInstance.CreateDay2Applications(
 		ctx,
 		r.Client,
-		ArgoCDNamespace,
+		namespace,
 		clusterSetup,
 	); err != nil {
 		clusterTemplateInstance.SetClusterSetupCreatedCondition(
@@ -963,6 +1093,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileClusterSetup(
 	ctx context.Context,
 	clusterTemplateInstance *v1alpha1.ClusterTemplateInstance,
 	clusterSetup []string,
+	namespace string,
 ) error {
 
 	if !clusterTemplateInstance.PhaseCanExecute(
@@ -986,7 +1117,7 @@ func (r *ClusterTemplateInstanceReconciler) reconcileClusterSetup(
 		"name",
 		clusterTemplateInstance.Name,
 	)
-	applications, err := clusterTemplateInstance.GetDay2Applications(ctx, r.Client, ArgoCDNamespace)
+	applications, err := clusterTemplateInstance.GetDay2Applications(ctx, r.Client, namespace)
 
 	if err != nil {
 		clusterTemplateInstance.SetClusterSetupSucceededCondition(

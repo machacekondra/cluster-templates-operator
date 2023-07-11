@@ -130,7 +130,7 @@ func GetAppset2() *argo.ApplicationSet {
 			Generators: []argo.ApplicationSetGenerator{{}},
 			Template: argo.ApplicationSetTemplate{
 				Spec: argo.ApplicationSpec{
-					Source: argo.ApplicationSource{
+					Source: &argo.ApplicationSource{
 						RepoURL:        "http://foo.com",
 						TargetRevision: "0.1.0",
 						Chart:          "hypershift-template",
@@ -158,7 +158,7 @@ func GetAppset() *argo.ApplicationSet {
 					Destination: argo.ApplicationDestination{
 						Namespace: "cluster-aas-operator",
 					},
-					Source: argo.ApplicationSource{
+					Source: &argo.ApplicationSource{
 						RepoURL:        "http://foo.com",
 						TargetRevision: "0.1.0",
 						Chart:          "hypershift-template",
@@ -185,7 +185,7 @@ func GetAppDay2() *argo.Application {
 			},
 		},
 		Spec: argo.ApplicationSpec{
-			Source: argo.ApplicationSource{
+			Source: &argo.ApplicationSource{
 				RepoURL:        "http://foo.com",
 				TargetRevision: "0.1.0",
 				Chart:          "hypershift-template",
@@ -209,7 +209,7 @@ func GetApp() *argo.Application {
 			},
 		},
 		Spec: argo.ApplicationSpec{
-			Source: argo.ApplicationSource{
+			Source: &argo.ApplicationSource{
 				RepoURL:        "http://foo.com",
 				TargetRevision: "0.1.0",
 				Chart:          "hypershift-template",

@@ -25,6 +25,8 @@ type ConfigSpec struct {
 	UIImage string `json:"uiImage,omitempty"`
 	// Flag that indicate if UI console plugin should be deployed
 	UIEnabled bool `json:"uiEnabled,omitempty"`
+	// Enable auto namespace management
+	AutoNamespaceManagement bool `json:"autoNamespaceManagement,omitempty"`
 }
 
 //+kubebuilder:object:root=true

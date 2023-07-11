@@ -27,6 +27,10 @@ type ClusterTemplateSetupSpec struct {
 	// +optional
 	// Array of ArgoCD applicationset names which are used for post installation setup of the cluster
 	ClusterSetup []string `json:"clusterSetup,omitempty"`
+
+	// +optional
+	// The namespace of the applicationsets
+	Namespace *string `json:"namespace,omitempty"`
 }
 
 type ClusterSetupSchema struct {

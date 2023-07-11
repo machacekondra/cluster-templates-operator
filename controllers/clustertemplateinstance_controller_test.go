@@ -861,7 +861,7 @@ var _ = Describe("ClusterTemplateInstance controller", func() {
 				Client: client,
 			}
 
-			err = reconciler.reconcileClusterSetupCreate(ctx, cti, []string{"appset2"})
+			err = reconciler.reconcileClusterSetupCreate(ctx, cti, []string{"appset2"}, ArgoCDNamespace)
 			Expect(err).Should(BeNil())
 
 			clusterSetupCreatedCondition := meta.FindStatusCondition(
@@ -921,7 +921,7 @@ var _ = Describe("ClusterTemplateInstance controller", func() {
 			reconciler := &ClusterTemplateInstanceReconciler{
 				Client: client,
 			}
-			err = reconciler.reconcileClusterSetup(ctx, cti, []string{"appset2"})
+			err = reconciler.reconcileClusterSetup(ctx, cti, []string{"appset2"}, ArgoCDNamespace)
 			Expect(err).Should(BeNil())
 			clusterSetupSucceededCondition := meta.FindStatusCondition(
 				cti.Status.Conditions,

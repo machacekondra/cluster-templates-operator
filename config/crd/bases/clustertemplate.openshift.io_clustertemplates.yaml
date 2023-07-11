@@ -58,9 +58,18 @@ spec:
                 description: Cost of the cluster, used for quotas
                 minimum: 0
                 type: integer
+              namespace:
+                description: The namespace of the applicationsets
+                type: string
+              pullSecret:
+                description: Pull secret
+                type: string
               skipClusterRegistration:
                 description: Skip the registration of the cluster to the hub cluster
                 type: boolean
+              sshKey:
+                description: SSH key
+                type: string
             required:
             - clusterDefinition
             type: object

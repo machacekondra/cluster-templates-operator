@@ -3,7 +3,7 @@ kind: Kustomization
 
 images:
 - name: controller
-  newName: quay.io/stolostron/cluster-templates-operator
+  newName: quay.io/machacekondra/cluster-templates-operator
   newTag: latest
 
 resources:

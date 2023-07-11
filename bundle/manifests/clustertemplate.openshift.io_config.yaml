@@ -39,6 +39,9 @@ spec:
               argoCDNamespace:
                 description: ArgoCd namespace where the ArgoCD instance is running
                 type: string
+              autoNamespaceManagement:
+                description: Enable auto namespace management
+                type: boolean
               uiEnabled:
                 description: Flag that indicate if UI console plugin should be deployed
                 type: boolean

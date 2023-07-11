@@ -29,6 +29,28 @@ type TLSClientConfig struct {
 	CAData string `json:"caData"`
 }
 
+func GetServer(ctx context.Context, k8sClient client.Client, clusterTemplateInstance *v1alpha1.ClusterTemplateInstance) (string, error) {
+	kubeconfigSecret := corev1.Secret{}
+
+	if err := k8sClient.Get(
+		ctx,
+		client.ObjectKey{
+			Name:      clusterTemplateInstance.GetKubeconfigRef(),
+			Namespace: clusterTemplateInstance.Namespace,
+		},
+		&kubeconfigSecret,
+	); err != nil {
+		return "", err
+	}
+
+	kubeconfig := api.Config{}
+	if err := yaml.Unmarshal(kubeconfigSecret.Data["kubeconfig"], &kubeconfig); err != nil {
+		return "", err
+	}
+
+	return kubeconfig.Clusters[0].Cluster.Server, nil
+}
+
 func AddClusterToArgo(
 	ctx context.Context,
 	k8sClient client.Client,

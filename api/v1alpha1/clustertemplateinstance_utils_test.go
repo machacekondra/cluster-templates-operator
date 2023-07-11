@@ -122,7 +122,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 			Spec: argo.ApplicationSetSpec{
 				Template: argo.ApplicationSetTemplate{
 					Spec: argo.ApplicationSpec{
-						Source: argo.ApplicationSource{
+						Source: &argo.ApplicationSource{
 							Helm: &argo.ApplicationSourceHelm{
 								Parameters: []argo.HelmParameter{
 									{Name: "foo", Value: "baz"},
@@ -165,7 +165,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 			Spec: argo.ApplicationSetSpec{
 				Template: argo.ApplicationSetTemplate{
 					Spec: argo.ApplicationSpec{
-						Source: argo.ApplicationSource{
+						Source: &argo.ApplicationSource{
 							Helm: &argo.ApplicationSourceHelm{
 								Parameters: []argo.HelmParameter{
 									{Name: "foo1", Value: "baz"},
@@ -223,7 +223,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 			Spec: argo.ApplicationSetSpec{
 				Template: argo.ApplicationSetTemplate{
 					Spec: argo.ApplicationSpec{
-						Source: argo.ApplicationSource{
+						Source: &argo.ApplicationSource{
 							Helm: &argo.ApplicationSourceHelm{
 								Parameters: []argo.HelmParameter{
 									{Name: "foo", Value: "baz"},
@@ -261,7 +261,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 			Spec: argo.ApplicationSetSpec{
 				Template: argo.ApplicationSetTemplate{
 					Spec: argo.ApplicationSpec{
-						Source: argo.ApplicationSource{
+						Source: &argo.ApplicationSource{
 							Helm: &argo.ApplicationSourceHelm{
 								Parameters: []argo.HelmParameter{
 									{Name: "foo1", Value: "baz"},
@@ -313,7 +313,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 				},
 			},
 			Spec: argo.ApplicationSpec{
-				Source:      argo.ApplicationSource{},
+				Source:      &argo.ApplicationSource{},
 				Destination: argo.ApplicationDestination{},
 				Project:     "",
 			},
@@ -358,7 +358,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 		}
 
 		client := fake.NewFakeClientWithScheme(scheme.Scheme, appset)
-		err := cti.CreateDay1Application(ctx, client, "cluster-aas-operator", false, "foo")
+		err := cti.CreateDay1Application(ctx, client, "cluster-aas-operator", false, "foo", "")
 
 		Expect(err).ShouldNot(HaveOccurred())
 
@@ -370,7 +370,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 
 		s, err := a.Items[0].Spec.Generators[0].List.Elements[0].MarshalJSON()
 		Expect(err).ToNot(HaveOccurred())
-		Expect(string(s)).To(ContainSubstring("{\"instance_ns\":\"default\",\"url\":\"https://kubernetes.default.svc\"}"))
+		Expect(string(s)).To(ContainSubstring("{\"instance_ns\":\"default\",\"url\":\"https://kubernetes.default.svc\",\"user_ns\":\"\"}"))
 	})
 
 	It("CreateDay2Applications", func() {
@@ -419,7 +419,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 				Generators: []argo.ApplicationSetGenerator{{}},
 				Template: argo.ApplicationSetTemplate{
 					Spec: argo.ApplicationSpec{
-						Source: argo.ApplicationSource{},
+						Source: &argo.ApplicationSource{},
 					},
 				},
 			},
@@ -583,7 +583,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 				Generators: []argo.ApplicationSetGenerator{{}},
 				Template: argo.ApplicationSetTemplate{
 					Spec: argo.ApplicationSpec{
-						Source: argo.ApplicationSource{},
+						Source: &argo.ApplicationSource{},
 						Destination: argo.ApplicationDestination{
 							Namespace: "{{ instance_ns }}",
 						},
@@ -597,7 +597,7 @@ var _ = Describe("ClusterTemplateInstance utils", func() {
 			},
 		}
 		client := fake.NewFakeClientWithScheme(scheme.Scheme, defns)
-		cti.labelDestionationNamespace(ctx, appset, client, "argocdns")
+		cti.labelDestionationNamespace(ctx, appset, client, "argocdns", "")
 		ns := &corev1.Namespace{}
 		err := client.Get(
 			ctx,

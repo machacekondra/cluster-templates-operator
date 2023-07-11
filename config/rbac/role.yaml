@@ -92,6 +92,17 @@ rules:
 - apiGroups:
   - argoproj.io
   resources:
+  - appprojects
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - argoproj.io
+  resources:
   - argocds
   verbs:
   - create

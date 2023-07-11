@@ -21,9 +21,10 @@ import (
 const (
 	configName = "config"
 
-	defaultArgoCDNs = "cluster-aas-operator"
-	defaultEnableUI = true
-	defaultUIImage  = "quay.io/stolostron/cluster-templates-console-plugin:2.8.0-70d540ca8c30c8b0c46cf635eb3553a0f53a6d0f"
+	defaultArgoCDNs         = "cluster-aas-operator"
+	defaultEnableUI         = true
+	defaultAutoNsManagement = false
+	defaultUIImage          = "quay.io/stolostron/cluster-templates-console-plugin:2.8.0-70d540ca8c30c8b0c46cf635eb3553a0f53a6d0f"
 )
 
 var (
@@ -46,9 +47,10 @@ func getDefaultConfig() *v1alpha1.Config {
 			Namespace: defaultArgoCDNs,
 		},
 		Spec: v1alpha1.ConfigSpec{
-			ArgoCDNamespace: defaultArgoCDNs,
-			UIImage:         defaultUIImage,
-			UIEnabled:       defaultEnableUI,
+			ArgoCDNamespace:         defaultArgoCDNs,
+			UIImage:                 defaultUIImage,
+			UIEnabled:               defaultEnableUI,
+			AutoNamespaceManagement: defaultAutoNsManagement,
 		},
 	}
 }

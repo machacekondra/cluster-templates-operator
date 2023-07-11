@@ -165,6 +165,7 @@ func (i *ClusterTemplateInstance) UpdateApplicationSet(
 	appSet *argo.ApplicationSet,
 	server string,
 	isDay2 bool,
+	user string,
 ) error {
 	for _, g := range appSet.Spec.Generators {
 		if g.List != nil && g.List.Template.Labels[CTINameLabel] == i.Name && g.List.Template.Labels[CTINamespaceLabel] == i.Namespace {
@@ -177,7 +178,7 @@ func (i *ClusterTemplateInstance) UpdateApplicationSet(
 		name = name + "-" + appSet.Name
 	}
 
-	elements, _ := json.Marshal(map[string]string{"url": server, "instance_ns": i.Namespace})
+	elements, _ := json.Marshal(map[string]string{"url": server, "instance_ns": i.Namespace, "user_ns": user})
 	gen := argo.ApplicationSetGenerator{List: &argo.ListGenerator{
 		Elements: []apiextensionsv1.JSON{{Raw: elements}},
 		Template: argo.ApplicationSetTemplate{
@@ -195,14 +196,14 @@ func (i *ClusterTemplateInstance) UpdateApplicationSet(
 	},
 	}
 
-	if appSet.Spec.Template.Spec.Source.Chart != "" {
+	if appSet != nil && appSet.Spec.Template.Spec.Source != nil && appSet.Spec.Template.Spec.Source.Chart != "" {
 		params, err := i.GetHelmParameters(appSet, isDay2)
 		if err != nil {
 			return err
 		}
 
 		gen.List.Template.Spec = argo.ApplicationSpec{
-			Source: argo.ApplicationSource{
+			Source: &argo.ApplicationSource{
 				Helm: &argo.ApplicationSourceHelm{
 					Parameters: params,
 				},
@@ -217,10 +218,14 @@ func (i *ClusterTemplateInstance) UpdateApplicationSet(
 	return k8sClient.Update(ctx, appSet)
 }
 
-func (i *ClusterTemplateInstance) labelDestionationNamespace(ctx context.Context, appSet *argo.ApplicationSet, k8sClient client.Client, argoCDNamespace string) error {
+func (i *ClusterTemplateInstance) labelDestionationNamespace(ctx context.Context, appSet *argo.ApplicationSet, k8sClient client.Client, argoCDNamespace string, user string) error {
 	appSetNS := appSet.Spec.Template.Spec.Destination.Namespace
 	if appSetNS == "{{ instance_ns }}" {
 		appSetNS = i.Namespace
+	}
+
+	if appSetNS == "{{ user_ns }}" {
+		appSetNS = user
 	}
 
 	if appSetNS == "" {
@@ -251,6 +256,7 @@ func (i *ClusterTemplateInstance) CreateDay1Application(
 	argoCDNamespace string,
 	labelNamespace bool,
 	clusterDefinition string,
+	user string,
 ) error {
 	appSet := &argo.ApplicationSet{}
 	if err := k8sClient.Get(
@@ -262,12 +268,12 @@ func (i *ClusterTemplateInstance) CreateDay1Application(
 	}
 
 	if labelNamespace {
-		if err := i.labelDestionationNamespace(ctx, appSet, k8sClient, argoCDNamespace); err != nil {
+		if err := i.labelDestionationNamespace(ctx, appSet, k8sClient, argoCDNamespace, user); err != nil {
 			return err
 		}
 	}
 
-	return i.UpdateApplicationSet(ctx, k8sClient, appSet, "https://kubernetes.default.svc", false)
+	return i.UpdateApplicationSet(ctx, k8sClient, appSet, "https://kubernetes.default.svc", false, user)
 }
 
 func (i *ClusterTemplateInstance) GetDay2Applications(
@@ -333,7 +339,7 @@ func (i *ClusterTemplateInstance) CreateDay2Applications(
 	}
 
 	for _, appset := range appsets {
-		if err := i.UpdateApplicationSet(ctx, k8sClient, appset, kubeconfig.Clusters[0].Cluster.Server, true); err != nil {
+		if err := i.UpdateApplicationSet(ctx, k8sClient, appset, kubeconfig.Clusters[0].Cluster.Server, true, ""); err != nil {
 			return err
 		}
 	}
@@ -372,7 +378,7 @@ func (i *ClusterTemplateInstance) GetHelmParameters(
 	isDay2 bool,
 ) ([]argo.HelmParameter, error) {
 	params := []argo.HelmParameter{}
-	if appset != nil && appset.Spec.Template.Spec.Source.Helm != nil {
+	if appset != nil && appset.Spec.Template.Spec.Source != nil && appset.Spec.Template.Spec.Source.Helm != nil {
 		params = appset.Spec.Template.Spec.Source.Helm.Parameters
 	}
 	for _, param := range i.Spec.Parameters {

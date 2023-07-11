@@ -26,6 +26,14 @@ var (
 )
 
 type ClusterTemplateSpec struct {
+	// Pull secret
+	// +optional
+	PullSecret *string `json:"pullSecret,omitempty"`
+
+	// SSH key
+	// +optional
+	SshKey *string `json:"sshKey,omitempty"`
+
 	// ArgoCD applicationset name which is used for installation of the cluster
 	ClusterDefinition string `json:"clusterDefinition"`
 
@@ -35,6 +43,10 @@ type ClusterTemplateSpec struct {
 	// +optional
 	// Array of ArgoCD applicationset names which are used for post installation setup of the cluster
 	ClusterSetup []string `json:"clusterSetup,omitempty"`
+
+	// +optional
+	// The namespace of the applicationsets
+	Namespace *string `json:"namespace,omitempty"`
 
 	// +optional
 	//+kubebuilder:validation:Minimum=0
